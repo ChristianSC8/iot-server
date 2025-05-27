@@ -11,19 +11,15 @@ use std::error::Error;
 use serde_json::Value;
 
 mod api;
-use std::env;
-use dotenv::dotenv;
 
-pub async fn get_db_pool() -> PgPool {
-    dotenv().ok(); // Carga el archivo .env
-
+async fn get_db_pool() -> PgPool {
     let database_url = format!(
         "postgres://{}:{}@{}:{}/{}",
-        env::var("DATABASE_USER").expect("DATABASE_USER not set"),
-        env::var("DATABASE_PASSWORD").expect("DATABASE_PASSWORD not set"),
-        env::var("DATABASE_HOST").expect("DATABASE_HOST not set"),
-        env::var("DATABASE_PORT").expect("DATABASE_PORT not set"),
-        env::var("DATABASE_NAME").expect("DATABASE_NAME not set"),
+        "postgres.noxekummlwjsekilbjzh",
+        "IJ0h8iREGKgM0GM1",
+        "aws-0-us-east-2.pooler.supabase.com",
+        "6543",
+        "postgres"
     );
 
     PgPool::connect(&database_url)
@@ -73,7 +69,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
 
     // Leer el certificado de la CA
-    let cert_file = File::open("./bin/ca.crt")?;
+    let cert_file = File::open("/etc/ssl/certs/ca.crt")?;
     let mut reader = BufReader::new(cert_file);
 
     let certs_vec: Vec<CertificateDer<'static>> = certs(&mut reader)
@@ -95,6 +91,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .with_no_client_auth();
 
     let tls_config = TlsConfiguration::Rustls(Arc::new(client_config));
+
 
     let mut mqtt_options = MqttOptions::new("rust-mqtt-client", "serveo.net", 34211);
     mqtt_options.set_transport(Transport::Tls(tls_config));
