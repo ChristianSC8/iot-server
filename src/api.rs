@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
 use tokio::net::TcpListener;
+use std::env;
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct SensorData {
@@ -66,14 +67,18 @@ pub fn create_router(pool: PgPool) -> Router {
 }
 
 pub async fn start_api_server(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    // Carga la variable de entorno API_PORT, o usa 3000 por defecto si no está definida
+    let port = env::var("PORT").unwrap_or_else(|_| "3000".to_string());
+    let addr = format!("0.0.0.0:{}", port);
+    
     let app = create_router(pool);
-    let listener = TcpListener::bind("0.0.0.0:3000").await?;
-    
-    println!("🌐 API REST iniciada en http://0.0.0.0:3000");
-    println!("📡 Endpoints disponibles:");
-    println!("   - GET /api/sensors/latest - Último registro");
-    println!("   - GET /api/sensors/all - Todos los registros");
-    
+    let listener = TcpListener::bind(&addr).await?;
+
+    println!("API REST started at http://{}", addr);
+    println!("Available endpoints:");
+    println!("   - GET /api/sensors/latest - Latest record");
+    println!("   - GET /api/sensors/all - All records");
+
     axum::serve(listener, app).await?;
     Ok(())
 }
