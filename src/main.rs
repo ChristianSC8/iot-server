@@ -96,7 +96,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let tls_config = TlsConfiguration::Rustls(Arc::new(client_config));
 
-    let mut mqtt_options = MqttOptions::new("rust-mqtt-client", "serveo.net", 34211);
+    let mut mqtt_options = MqttOptions::new("rust-mqtt-client", "serveo.net", 42082);
     mqtt_options.set_transport(Transport::Tls(tls_config));
     mqtt_options.set_keep_alive(Duration::from_secs(30));
 
