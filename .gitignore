@@ -1,2 +1,13 @@
 /target
 .env
+# .gitignore
+/target
+**/*.rs.bk
+Cargo.lock
+*.log
+*.zip
+*.jar
+*.tar.gz
+.idea/
+.vscode/
+.DS_Store
