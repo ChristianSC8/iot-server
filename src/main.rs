@@ -35,7 +35,7 @@ async fn save_sensor_data(pool: &PgPool, payload: &str) -> Result<(), Box<dyn Er
     let data: Value = serde_json::from_str(payload)?;
 
     let query = r#"
-        INSERT INTO sensor_metrics (mq7_co, mq135_no2, dht11_temperature, dht11_humidity, timestamp)
+        INSERT INTO sensor_metrics_manis (mq7_co, mq135_no2, dht11_temperature, dht11_humidity, timestamp)
         VALUES ($1, $2, $3, $4, $5::timestamptz)
     "#;
 
@@ -60,19 +60,15 @@ async fn save_sensor_data(pool: &PgPool, payload: &str) -> Result<(), Box<dyn Er
 async fn main() -> Result<(), Box<dyn Error>> {
     dotenv::dotenv().ok();
 
-    // Conectar a base de datos
     let pool = get_db_pool().await;
-    println!("Conectado a Supabase");
 
-    // Iniciar API REST en una tarea separada
     let api_pool = pool.clone();
     tokio::spawn(async move {
         if let Err(e) = api::start_api_server(api_pool).await {
-            eprintln!("❌ Error en servidor API: {}", e);
+            eprintln!("Error en servidor API: {}", e);
         }
     });
 
-    // Leer el certificado de la CA
     let cert_file = File::open("/etc/ssl/certs/ca.crt")?;
     let mut reader = BufReader::new(cert_file);
 
@@ -83,20 +79,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Err("No se encontraron certificados en el archivo".into());
     }
 
-    // Crear RootCertStore y añadir certificado
     let mut root_cert_store = RootCertStore::empty();
     for cert in certs_vec {
         root_cert_store.add(cert)?;
     }
 
-    // Crear configuración TLS con validación
     let client_config = ClientConfig::builder()
         .with_root_certificates(root_cert_store)
         .with_no_client_auth();
 
     let tls_config = TlsConfiguration::Rustls(Arc::new(client_config));
 
-    let mut mqtt_options = MqttOptions::new("rust-mqtt-client", "serveo.net", 42082);
+    let mut mqtt_options = MqttOptions::new("rust-mqtt-client", "serveo.net", 36154);
     mqtt_options.set_transport(Transport::Tls(tls_config));
     mqtt_options.set_keep_alive(Duration::from_secs(30));
 

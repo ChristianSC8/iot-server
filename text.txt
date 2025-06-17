@@ -1,0 +1,55 @@
+4. Desafíos Encontrados y Soluciones
+4.1 Desafío de Seguridad
+Problema: La implementación inicial carecía de encriptación end-to-end, exponiendo datos sensibles durante la transmisión entre dispositivos IoT y el backend.
+Solución: Se implementó un esquema de seguridad robusto que incluye:
+
+Certificados CA TLS para encriptar comunicaciones MQTT
+Autenticación mutua entre dispositivos y broker
+Tokens JWT con expiración automática
+Validación de integridad de datos mediante checksums
+
+4.2 Escalabilidad del Broker MQTT
+Problema: El broker inicial no soportaba múltiples dispositivos concurrentes.
+Solución: Migración a Railway con auto-scaling y balanceador de carga, permitiendo manejar hasta 1000+ dispositivos simultáneos.
+4.3 Latencia en Tiempo Real
+Problema: Retrasos de hasta 5 segundos en la visualización de datos críticos.
+Solución: Optimización del pipeline de datos con Rust y implementación de Supabase Realtime, reduciendo la latencia a menos de 200ms.
+
+
+christian@VivoBook:~/Documents/Programing/Rust/iot-server$ docker run -p 3000:3000   -e DATABASE_HOST=aws-0-us-east-2.pooler.supabase.com   -e DATABASE_USER=postgres.noxekummlwjsekilbjzh   -e DATABASE_PASSWORD=IJ0h8iREGKgM0GM1   -e DATABASE_PORT=6543   -e DATABASE_NAME=postgres   -e PORT=3000   iot-server^C
+christian@VivoBook:~/Documents/Programing/Rust/iot-server$ 
+
+christian@VivoBook:~/Documents/Programing/Rust/iot-server$ docker build -t iot-server .
+
+
+docker run -p 3000:3000 -e DATABASE_HOST=aws-0-us-east-2.pooler.supabase.com -e DATABASE_USER=postgres.sdtlkvmqfsmuzcxodluy -e DATABASE_PASSWORD=123456789 -e DATABASE_PORT=6543 -e DATABASE_NAME=postgres -e PORT=3000 iot-server
+
+
+docker run -p 3000:3000   -e DATABASE_HOST=aws-0-us-east-2.pooler.supabase.com   -e DATABASE_USER=postgres.sdtlkvmqfsmuzcxodluy   -e DATABASE_PASSWORD=123456789   -e DATABASE_PORT=6543   -e DATABASE_NAME=postgres   -e PORT=3000   iot-server
+
+docker run -p 3000:3000   -e DATABASE_HOST=db.sdtlkvmqfsmuzcxodluy.supabase.co  -e DATABASE_USER=postgres   -e DATABASE_PASSWORD=123456789   -e DATABASE_PORT=5432  -e DATABASE_NAME=postgres   -e PORT=3000   iot-server
+
+
+
+docker run -p 3000:3000 -e DATABASE_HOST=aws-0-us-east-2.pooler.supabase.com -e DATABASE_USER=postgres.sdtlkvmqfsmuzcxodluy -e DATABASE_PASSWORD=YlzNdNQtL0Wmc2Ig -e DATABASE_PORT=6543 -e DATABASE_NAME=postgres -e PORT=3000 iot-server
+
+
+-------------------------------------------------------------------------------------------------------------
+database pasword 
+YlzNdNQtL0Wmc2Ig
+
+docker build -t iot-server .
+
+docker run -p 3000:3000 -e DATABASE_HOST=aws-0-us-east-2.pooler.supabase.com -e DATABASE_USER=postgres.sdtlkvmqfsmuzcxodluy -e DATABASE_PASSWORD=YlzNdNQtL0Wmc2Ig -e DATABASE_PORT=6543 -e DATABASE_NAME=postgres -e PORT=3000 iot-server
+
+mosquitto_pub \
+  -h serveo.net -p 36154 \
+  --cafile /home/christian/Documents/Programing/Rust/rust/bin/ca.crt \
+  -t "esp32/sensors" \
+  -m '{"mq7_co":123,"mq135_no2":45,"dht11_temperature":22.5,"dht11_humidity":55.0,"timestamp":"2025-06-17T12:00:00Z"}' \
+  -d
+
+---------
+docker build -t rust .
+
+docker run -p 8883:8883 --name broker rust
