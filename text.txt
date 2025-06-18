@@ -53,3 +53,212 @@ mosquitto_pub \
 docker build -t rust .
 
 docker run -p 8883:8883 --name broker rust
+
+
+
+
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <PubSubClient.h>
+#include <DHT.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <SPI.h>
+#include <time.h>
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET 16
+#define OLED_DC    17
+#define OLED_CLK   18
+#define OLED_MOSI  23
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, OLED_MOSI, OLED_CLK, OLED_DC, OLED_RESET, -1);
+
+#define DHTPIN 15
+#define DHTTYPE DHT11
+DHT dht(DHTPIN, DHTTYPE);
+
+#define BUZZER_PIN 27
+#define LED_PIN    26
+#define MQ7_PIN    34
+#define MQ135_PIN  35
+
+const char* ssid = "tavo";
+const char* password = "Salluca15";
+
+const char* mqtt_server = "serveo.net";
+const int mqtt_port = 36154;
+const char* mqtt_topic = "esp32/sensors";
+
+const char* ca_cert = R"(-----BEGIN CERTIFICATE-----
+MIIDoTCCAomgAwIBAgIUa3x4xxnm1e3IXuu4/IQskriv7EQwDQYJKoZIhvcNAQEL
+BQAwYDELMAkGA1UEBhMCUEUxDTALBgNVBAgMBExpbWExDTALBgNVBAcMBExpbWEx
+DDAKBgNVBAoMA0lPVDEPMA0GA1UECwwGY2xpZW50MRQwEgYDVQQDDAtkZXZlbG9w
+bWVudDAeFw0yNTA1MjUwMDI5MTVaFw0zMDA2MDEwMDI5MTVaMGAxCzAJBgNVBAYT
+AlBFMQ0wCwYDVQQIDARMaW1hMQ0wCwYDVQQHDARMaW1hMQwwCgYDVQQKDANJT1Qx
+DzANBgNVBAsMBmNsaWVudDEUMBIGA1UEAwwLZGV2ZWxvcG1lbnQwggEiMA0GCSqG
+SIb3DQEBAQUAA4IBDwAwggEKAoIBAQDvxTzdV98z1hww7Uowmzhph0RFmza/5yYH
+bLwhvZM3P4F8OOiB2bxffTRysoj34f2xoLqMId4me+ej3rOmXs4Md72+IEECeFuS
+8BrYoECpncQNKP8w6MHHBtCuZFbAsP0XexJvE9gP26AJOYmPB0S6k/JX+AFRlkBh
+dXl0uemvnRxX3Avc+Jo6Z1aNfyBrgXd5lfIh8DLssr+u51H/0iQVxEEYhmWuEAE0
+4bTtkxw6T55MD0ns/2SEru6IH2BUHxyq/1DjLdlPxQ7YDHbiIIHlTWrupPWKNH4b
+qmM1bXizJ/fw8LsSC/X76a2qdqoB9obk8Tgve4Vn0EuDg/xZfMf9AgMBAAGjUzBR
+MB0GA1UdDgQWBBRjGttsFzGWy1oHhGGUHiB7ZQKsujAfBgNVHSMEGDAWgBRjGtts
+FzGWy1oHhGGUHiB7ZQKsujAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUA
+A4IBAQBg6E6uJWQR9O+HaipbGXnxb+Z2ISijJqOg3+Djmu8Z7uk3SN6ZqCDzlPkb
+5nexN4VDb8pEqjlLVBFYoqEm/D9yQdofIwqP7iRcUCWDN4GN28td2mg219lWlTVT
+GYeySiFtmM2IVF9+XQ2cIs1ZSlNX8Ezr9P9S4DccdzW2j64xAf5U3AbEGJ4JjqMt
+q6HakX2UDJmEoMi0XJ80XqxGB9Eo7H10sDQPe5IYq2SN60BKtsBsjd3fCGfhC4dL
+RCPDcpBmuS6VsWMDNXzesqZLO6VafWn23bztuEvGhxpo2Z64zA1cCxbhkbxKThbh
+uETtCVfr8QKyQmXPyAmjZQFNmYVm
+-----END CERTIFICATE-----)";
+
+WiFiClientSecure secureClient;
+PubSubClient client(secureClient);
+
+void setup_wifi() {
+  Serial.print("Conectando a ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi conectado");
+}
+
+void reconnect_mqtt() {
+  while (!client.connected()) {
+    Serial.print("Conectando a MQTT...");
+    if (client.connect("ESP32Client")) {
+      Serial.println("Conectado");
+    } else {
+      Serial.print("Error: ");
+      Serial.print(client.state());
+      delay(5000);
+    }
+  }
+}
+
+void mostrarEstadoConexion(bool conectado) {
+  display.setCursor(0, SCREEN_HEIGHT - 10); // Última línea
+  if (conectado) {
+    display.print("MQTT: Conectado");
+  } else {
+    display.print("MQTT: Desconectado");
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  dht.begin();
+
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println("Fallo OLED");
+    while (true);
+  }
+
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.println("Iniciando...");
+  display.display();
+
+  pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+  digitalWrite(LED_PIN, LOW);
+
+  setup_wifi();
+
+  configTime(-5 * 3600, 0, "pool.ntp.org", "time.nist.gov");
+  struct tm timeinfo;
+  while (!getLocalTime(&timeinfo)) {
+    delay(500);
+  }
+
+  secureClient.setCACert(ca_cert);
+  client.setServer(mqtt_server, mqtt_port);
+
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.println("Sistema listo");
+  display.display();
+  delay(2000);
+}
+
+String obtenerFechaHora() {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    return "Error";
+  }
+  char buffer[30];
+  strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
+  return String(buffer);
+}
+
+void loop() {
+  if (!client.connected()) {
+    reconnect_mqtt();
+  }
+  client.loop();
+
+  float temp = dht.readTemperature();
+  float hum = dht.readHumidity();
+
+  int mq7Value = analogRead(MQ7_PIN);
+  int mq135Value = analogRead(MQ135_PIN);
+
+  float co_ppm = mq7Value * 0.2;
+  float nh3_ppm = mq135Value * 0.1;
+  float co2_ppm = mq135Value * 0.15;
+
+  String timestamp = obtenerFechaHora();
+
+  static int pantalla = 0;
+  pantalla = (pantalla + 1) % 2;
+
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.println("  ManisDev's");
+  display.drawLine(0, 10, SCREEN_WIDTH, 10, SSD1306_WHITE);
+  int y = 12;
+
+  if (pantalla == 0) {
+    display.setCursor(0, y); display.print("Temp: "); display.print(temp); display.println(" C"); y += 10;
+    display.setCursor(0, y); display.print("Hum: "); display.print(hum); display.println(" %"); y += 10;
+  } else {
+    display.setCursor(0, y); display.print("CO: "); display.print(co_ppm); display.println(" ppm"); y += 10;
+    display.setCursor(0, y); display.print("NH3: "); display.print(nh3_ppm); display.println(" ppm"); y += 10;
+    display.setCursor(0, y); display.print("CO2: "); display.print(co2_ppm); display.println(" ppm"); y += 10;
+  }
+
+  mostrarEstadoConexion(client.connected());  // Mostrar estado MQTT
+  display.display();
+
+  if (co_ppm > 300 || nh3_ppm > 300) {
+    tone(BUZZER_PIN, 1000);
+    digitalWrite(LED_PIN, HIGH);
+  } else {
+    noTone(BUZZER_PIN);
+    digitalWrite(LED_PIN, LOW);
+  }
+
+  String payload = "{";
+  payload += "\"mq7_co\":" + String(mq7Value) + ",";
+  payload += "\"mq135_no2\":" + String(mq135Value) + ",";
+  payload += "\"dht11_temperature\":" + String(temp) + ",";
+  payload += "\"dht11_humidity\":" + String(hum) + ",";
+  payload += "\"timestamp\":\"" + timestamp + "\"}";
+
+  if (client.publish(mqtt_topic, payload.c_str())) {
+    Serial.println("Datos enviados a MQTT");
+  } else {
+    Serial.println("Error al enviar a MQTT");
+  }
+
+  delay(5000);
+}
