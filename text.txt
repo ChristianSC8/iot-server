@@ -265,3 +265,235 @@ void loop() {
 
 
 mosquitto_sub -h 103.179.45.114 -p 8883 --cafile /home/christian/Pictures/IOT-PROJECT/iot-broker/bin/ca.crt -t "esp32/sensors" -d
+
+
+
+
+
+# Multi-stage build para optimizar el tamaño final
+FROM rust:1.87-bookworm AS builder
+
+# Instalar dependencias de sistema necesarias para la compilación
+RUN apt-get update && \
+    apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    ca-certificates \
+    cmake \
+    build-essential && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /usr/src/app
+
+# Copiar archivos de configuración de Cargo primero para aprovechar cache de Docker
+COPY Cargo.toml Cargo.lock ./
+
+# Crear directorio src con main.rs dummy para compilar dependencias
+RUN mkdir src && \
+    echo "fn main() {}" > src/main.rs && \
+    echo "" > src/lib.rs
+
+# Compilar solo las dependencias (optimización de cache)
+RUN cargo build --release && \
+    rm -rf src/
+
+# Copiar el código fuente real
+COPY src ./src
+COPY bin ./bin
+
+# Recompilar solo el código de la aplicación
+RUN touch src/main.rs && \
+    cargo build --release
+
+# Etapa final - imagen mínima
+FROM debian:bookworm-slim
+
+# Instalar dependencias de runtime
+RUN apt-get update && \
+    apt-get install -y \
+    libssl3 \
+    ca-certificates \
+    curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get clean
+
+# Crear usuario no-root para seguridad
+RUN groupadd -r iotuser && \
+    useradd -r -g iotuser iotuser
+
+# Crear directorios necesarios
+RUN mkdir -p /app/bin /app/logs && \
+    chown -R iotuser:iotuser /app
+
+# Copiar binario compilado
+COPY --from=builder /usr/src/app/target/release/iot-server /app/iot-server
+
+# Copiar certificado TLS
+COPY --from=builder /usr/src/app/bin/ca.crt /app/bin/ca.crt
+
+# Cambiar ownership de los archivos
+RUN chown -R iotuser:iotuser /app && \
+    chmod +x /app/iot-server
+
+# Configuar usuario
+USER iotuser
+
+# Establecer directorio de trabajo
+WORKDIR /app
+
+# Variables de entorno por defecto
+ENV RUST_LOG=info
+ENV PORT=4848
+
+# Exponer puerto (ajustado al puerto real de la aplicación)
+EXPOSE 4848
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:${PORT}/health || exit 1
+
+# Comando por defecto
+CMD ["./iot-server"]
+
+version: '3.8'
+
+services:
+  # Base de datos PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: iot_postgres
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME:-iot_sensors}
+      POSTGRES_USER: ${DATABASE_USER:-iot_user}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-iot_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "${DATABASE_PORT:-5432}:5432"
+    networks:
+      - iot_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-iot_user} -d ${DATABASE_NAME:-iot_sensors}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Aplicación IoT Server
+  iot-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: iot_server
+    environment:
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: ${DATABASE_NAME:-iot_sensors}
+      DATABASE_USER: ${DATABASE_USER:-iot_user}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-iot_password}
+      PORT: ${PORT:-4848}
+      MQTT_HOST: ${MQTT_HOST:-103.179.45.114}
+      MQTT_PORT: ${MQTT_PORT:-8883}
+      MQTT_CLIENT_ID: ${MQTT_CLIENT_ID:-rust-mqtt-client}
+      MQTT_TOPIC: ${MQTT_TOPIC:-esp32/sensors}
+      RUST_LOG: ${RUST_LOG:-info}
+    ports:
+      - "${PORT:-4848}:4848"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - iot_network
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4848/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # pgAdmin para administración de base de datos (opcional)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: iot_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@iot.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin123}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "${PGADMIN_PORT:-8080}:80"
+    depends_on:
+      - postgres
+    networks:
+      - iot_network
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    restart: unless-stopped
+    profiles:
+      - admin
+
+  # Nginx reverse proxy (opcional para producción)
+  nginx:
+    image: nginx:alpine
+    container_name: iot_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - iot-server
+    networks:
+      - iot_network
+    restart: unless-stopped
+    profiles:
+      - production
+
+volumes:
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+
+networks:
+  iot_network:
+    driver: bridge
+
+
+
+
+# Database Configuration
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+DATABASE_NAME=iot_sensors
+DATABASE_USER=iot_user
+DATABASE_PASSWORD=iot_password
+
+# API Configuration
+PORT=4848
+
+# MQTT Configuration
+MQTT_HOST=103.179.45.114
+MQTT_PORT=8883
+MQTT_CLIENT_ID=rust-mqtt-client
+MQTT_TOPIC=esp32/sensors
+
+# Logging
+RUST_LOG=info
+
+# pgAdmin (opcional)
+PGADMIN_EMAIL=admin@iot.local
+PGADMIN_PASSWORD=admin123
+PGADMIN_PORT=8080
+
+
+
+# Build
+docker build -t iot-server .
+
+# Run
+docker run -p 4848:4848 --env-file .env iot-server
